@@ -90,7 +90,7 @@
         .site-card .site-name-wrapper { overflow-x: auto; white-space: nowrap; }
         .site-card .site-name-wrapper::-webkit-scrollbar { display: none; }
         .site-card .site-name { color: var(--google-blue); margin: 0; font-size: 18px; font-weight: 400; display: inline-block; }
-        .site-card .author-name { color: black; font-size: 12px; font-weight: bold; margin-top: 2px; }
+        .site-card .author-name { color: black; font-size: 12px; font-weight: bold; margin-top: 2px; display: flex; align-items: center; gap: 4px; }
 
         /* Stats Section Added */
         .site-stats { display: flex; align-items: center; gap: 15px; padding-left: 10px; }
@@ -108,10 +108,13 @@
         .comment-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .comment-list { flex-grow: 1; overflow-y: auto; padding: 15px; }
         .comment-item { margin-bottom: 15px; font-size: 14px; line-height: 1.4; }
-        .comment-user { font-weight: bold; margin-right: 5px; }
+        .comment-user { font-weight: bold; margin-right: 5px; display: inline-flex; align-items: center; gap: 3px; }
         .comment-input-area { padding: 10px; border-top: 1px solid #eee; display: flex; gap: 10px; background: #f9f9f9; }
         .comment-input-area input { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
         .send-btn { background: var(--google-blue); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
+
+        /* Verified Tick Style */
+        .verified-tick { color: #1da1f2; font-size: 12px; }
 
         .nav-bar { 
             position: fixed; 
@@ -210,7 +213,7 @@
             <div class="search-header">
                 <div class="search-wrapper">
                     <i class="fa fa-search"></i>
-                    <input type="text" id="search-bar" placeholder="Search by website name...">
+                    <input type="text" id="search-bar" placeholder="Search by name or Account = Name">
                 </div>
             </div>
             <div class="feed" id="site-list">
@@ -343,6 +346,7 @@
         const usersRef = db.ref('app_users');
 
         let allWebsites = [];
+        let usersData = {}; // Stores verification info
         let isViewing = false; 
         let currentUser = null;
         let isSignUpMode = true;
@@ -353,6 +357,12 @@
         window.onload = function() {
             const savedUser = localStorage.getItem('webhub_user');
             if(savedUser) { loginUser(savedUser); }
+            
+            // Listen to users for verification status
+            usersRef.on('value', snap => {
+                usersData = snap.val() || {};
+                refreshList(document.getElementById('search-bar').value);
+            });
         };
 
         function toggleAuthMode() {
@@ -371,7 +381,7 @@
                 usersRef.child(user).once('value', snap => {
                     if(snap.exists()) { alert("Change your name, it is already there"); }
                     else { 
-                        usersRef.child(user).set({ password: pass }).then(() => { 
+                        usersRef.child(user).set({ password: pass, verified: false }).then(() => { 
                             alert("Account Created!"); 
                             loginUser(user); 
                         }); 
@@ -397,7 +407,7 @@
         function finalLogout() { localStorage.removeItem('webhub_user'); location.reload(); }
 
         function navigate(page) {
-            document.getElementById('home-page').style.display = (page === 'home') ? 'block' : 'none';
+          document.getElementById('home-page').style.display = (page === 'home') ? 'block' : 'none';
             document.getElementById('create-screen').style.display = (page === 'create') ? 'block' : 'none';
             document.getElementById('home-btn').classList.toggle('active', page === 'home');
             document.getElementById('create-btn').classList.toggle('active', page === 'create');
@@ -524,19 +534,31 @@
                 allWebsites.push(data);
             });
             allWebsites.sort((a, b) => (b.clicks || 0) - (a.clicks || 0));
-            refreshList();
+            refreshList(document.getElementById('search-bar').value);
         });
 
         function refreshList(searchTerm = "") {
             const list = document.getElementById('site-list');
             list.innerHTML = "";
-            const filtered = allWebsites.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
+            let filtered = [];
+
+            if(searchTerm.toLowerCase().startsWith("account =")) {
+                let targetAccount = searchTerm.split("=")[1].trim().toLowerCase();
+                filtered = allWebsites.filter(s => (s.author || "").toLowerCase() === targetAccount);
+            } else {
+                filtered = allWebsites.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
+            }
             
             filtered.forEach(site => {
                 if(site.status !== 'approved') return;
                 
                 const commentCount = site.comments ? Object.keys(site.comments).length : 0;
                 const viewCount = site.clicks || 0;
+                
+                // Admin Tick Logic
+                const authorInfo = usersData[site.author] || {};
+                const isVerified = authorInfo.verified === true || viewCount >= 1000000;
+                const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
 
                 const item = document.createElement('div');
                 item.className = 'site-card';
@@ -546,7 +568,7 @@
                         <div class="site-name-wrapper">
                             <h3 class="site-name">${site.name}</h3>
                         </div>
-                        <div class="author-name">by ${site.author || 'Anonymous'}</div>
+                        <div class="author-name">by ${site.author || 'Anonymous'} ${blueTick}</div>
                     </div>
                     <div class="site-stats">
                         <div class="stat-item">
@@ -595,14 +617,25 @@
             db.ref('uploaded_sites/' + id + '/comments').on('value', snap => {
                 listUi.innerHTML = "";
                 if(!snap.exists()) { listUi.innerHTML = "<p style='color:#999;'>No comments yet.</p>"; return; }
+                
+                let commentArr = [];
                 snap.forEach(c => {
-                    const data = c.val();
+                    let cData = c.val();
+                    commentArr.push(cData);
+                });
+                
+                commentArr.sort((a, b) => b.timestamp - a.timestamp);
+
+                commentArr.forEach(data => {
+                    const authorInfo = usersData[data.user] || {};
+                    const isUserVerified = authorInfo.verified === true;
+                    const blueTick = isUserVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
+                    
                     const div = document.createElement('div');
                     div.className = 'comment-item';
-                    div.innerHTML = `<span class="comment-user">${data.user}:</span><span>${data.text}</span>`;
+                    div.innerHTML = `<span class="comment-user">${data.user} ${blueTick}:</span><span>${data.text}</span>`;
                     listUi.appendChild(div);
                 });
-                listUi.scrollTop = listUi.scrollHeight;
             });
         }
 
