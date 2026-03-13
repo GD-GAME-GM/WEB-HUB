@@ -86,9 +86,32 @@
             object-fit: cover; 
             border: 1px solid #f0f0f0;
         }
-        .site-card .info-box { flex-grow: 1; }
-        .site-card .site-name { color: var(--google-blue); margin: 0; font-size: 18px; font-weight: 400; }
+        .site-card .info-box { flex-grow: 1; overflow: hidden; }
+        .site-card .site-name-wrapper { overflow-x: auto; white-space: nowrap; }
+        .site-card .site-name-wrapper::-webkit-scrollbar { display: none; }
+        .site-card .site-name { color: var(--google-blue); margin: 0; font-size: 18px; font-weight: 400; display: inline-block; }
         .site-card .author-name { color: black; font-size: 12px; font-weight: bold; margin-top: 2px; }
+
+        /* Stats Section Added */
+        .site-stats { display: flex; align-items: center; gap: 15px; padding-left: 10px; }
+        .stat-item { display: flex; flex-direction: column; align-items: center; color: var(--google-gray); }
+        .stat-item i { font-size: 18px; }
+        .stat-count { font-size: 10px; font-weight: bold; margin-top: 2px; }
+
+        /* YouTube Comment Styles Added */
+        #comment-panel {
+            position: fixed; bottom: -100%; left: 0; width: 100%; height: 80%;
+            background: white; z-index: 12000; border-radius: 20px 20px 0 0;
+            box-shadow: 0 -5px 25px rgba(0,0,0,0.2); transition: 0.3s ease;
+            display: flex; flex-direction: column;
+        }
+        .comment-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .comment-list { flex-grow: 1; overflow-y: auto; padding: 15px; }
+        .comment-item { margin-bottom: 15px; font-size: 14px; line-height: 1.4; }
+        .comment-user { font-weight: bold; margin-right: 5px; }
+        .comment-input-area { padding: 10px; border-top: 1px solid #eee; display: flex; gap: 10px; background: #f9f9f9; }
+        .comment-input-area input { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
+        .send-btn { background: var(--google-blue); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
 
         .nav-bar { 
             position: fixed; 
@@ -195,6 +218,18 @@
             </div>
         </div>
 
+        <div id="comment-panel">
+            <div class="comment-header">
+                <h3 style="margin:0;">Comments</h3>
+                <i class="fa fa-times" onclick="toggleComments(false)" style="font-size:22px; cursor:pointer;"></i>
+            </div>
+            <div class="comment-list" id="comment-list-ui"></div>
+            <div class="comment-input-area">
+                <input type="text" id="new-comment" placeholder="Add a comment...">
+                <button class="send-btn" onclick="postComment()"><i class="fa fa-paper-plane"></i></button>
+            </div>
+        </div>
+
         <div id="admin-panel">
             <div class="panel-content">
                 <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
@@ -293,15 +328,13 @@
     </div>
 
     <script>
-        // Firebase Config wahi hai jo aapne di
         const firebaseConfig = {
-
-  apiKey: "AIzaSyCIaUvxEhJ7EBQY5pAH4k7fAGMCKpacYWE",
-  authDomain: "web-hub-6747f.firebaseapp.com",
-  databaseURL: "https://web-hub-6747f-default-rtdb.firebaseio.com",
-  projectId: "web-hub-6747f",
-  storageBucket: "web-hub-6747f.firebasestorage.app",
-  messagingSenderId: "874170827917",
+            apiKey: "AIzaSyCIaUvxEhJ7EBQY5pAH4k7fAGMCKpacYWE",
+            authDomain: "web-hub-6747f.firebaseapp.com",
+            databaseURL: "https://web-hub-6747f-default-rtdb.firebaseio.com",
+            projectId: "web-hub-6747f",
+            storageBucket: "web-hub-6747f.firebasestorage.app",
+            messagingSenderId: "874170827917",
         };
 
         firebase.initializeApp(firebaseConfig);
@@ -315,6 +348,7 @@
         let isSignUpMode = true;
         let pendingDeleteId = "";
         let pendingDeleteName = "";
+        let currentCommentSiteId = null;
 
         window.onload = function() {
             const savedUser = localStorage.getItem('webhub_user');
@@ -328,21 +362,15 @@
             document.getElementById('auth-toggle-text').innerText = isSignUpMode ? "Already have an account? Login" : "New here? Create Account";
         }
 
-        // --- UPDATED AUTH LOGIC ---
         function handleAuth() {
             const user = document.getElementById('auth-user').value.trim();
             const pass = document.getElementById('auth-pass').value.trim();
             if(user.length < 3 || pass.length < 3) { alert("Min 3 characters required!"); return; }
             
             if(isSignUpMode) {
-                // Pehle check karenge ki ye username already database mein hai ya nahi
                 usersRef.child(user).once('value', snap => {
-                    if(snap.exists()) { 
-                        // Agar naam pehle se hai, toh ye message dikhayenge
-                        alert("Change your name, it is already there"); 
-                    }
+                    if(snap.exists()) { alert("Change your name, it is already there"); }
                     else { 
-                        // Agar naya naam hai, toh account banayenge
                         usersRef.child(user).set({ password: pass }).then(() => { 
                             alert("Account Created!"); 
                             loginUser(user); 
@@ -350,7 +378,6 @@
                     }
                 });
             } else {
-                // Login Mode
                 usersRef.child(user).once('value', snap => {
                     if(snap.exists() && snap.val().password === pass) { loginUser(user); }
                     else { alert("Wrong Password!"); }
@@ -365,7 +392,6 @@
             document.getElementById('main-content').style.display = 'block';
         }
 
-        // Baaki ke saare functions (publish, navigate, toggleAdmin, etc.) bilkul wahi hain jo aapne diye the
         function showLogoutConfirm() { document.getElementById('logout-modal').style.display = 'flex'; }
         function closeLogoutModal() { document.getElementById('logout-modal').style.display = 'none'; }
         function finalLogout() { localStorage.removeItem('webhub_user'); location.reload(); }
@@ -406,21 +432,17 @@
                 let statusText = 'Pending';
                 if(site.status === 'approved') { statusClass = 'status-expected'; statusText = 'Expected'; }
                 if(site.status === 'rejected') { statusClass = 'status-rejected'; statusText = 'Rejected'; }
-                
                 item.innerHTML = `<div><b>${site.name}</b></div><div class="status-badge ${statusClass}">${statusText}</div>`;
                 list.appendChild(item);
             });
         }
-function closeRequests() { 
-            document.getElementById('request-screen').style.display = 'none'; 
-        }
-  
+        function closeRequests() { document.getElementById('request-screen').style.display = 'none'; }
+
         function validate() {
             const icon = document.getElementById('site-icon').value.trim();
             const name = document.getElementById('site-name').value.trim();
             const code = document.getElementById('site-code').value.trim();
             const editId = document.getElementById('edit-id').value;
-            
             if(editId) {
                 document.getElementById('update-btn').style.display = (icon && name && code) ? 'block' : 'none';
                 document.getElementById('publish-btn').style.display = 'none';
@@ -434,18 +456,10 @@ function closeRequests() {
             const name = document.getElementById('site-name').value;
             const icon = document.getElementById('site-icon').value;
             const code = document.getElementById('site-code').value;
-            
             sitesRef.push({
-                name: name,
-                icon: icon,
-                code: code,
-                author: currentUser,
-                clicks: 0,
-                status: 'pending',
-                timestamp: Date.now()
+                name: name, icon: icon, code: code, author: currentUser, clicks: 0, status: 'pending', timestamp: Date.now()
             }).then(() => {
-                alert("Website Sent for Approval (Pending)!");
-                navigate('home');
+                alert("Website Sent for Approval (Pending)!"); navigate('home');
             });
         }
 
@@ -453,59 +467,37 @@ function closeRequests() {
             const list = document.getElementById('admin-list');
             list.innerHTML = "";
             const mySites = allWebsites.filter(s => s.author === currentUser);
-            if(mySites.length === 0) {
-                list.innerHTML = "<p style='text-align:center; color:#999;'>You haven't uploaded any sites.</p>";
-                return;
-            }
+            if(mySites.length === 0) { list.innerHTML = "<p style='text-align:center; color:#999;'>You haven't uploaded any sites.</p>"; return; }
             mySites.forEach(site => {
                 const item = document.createElement('div');
                 item.className = 'admin-item';
-                item.innerHTML = `
-                    <span>${site.name}</span>
-                    <div>
-                        <button class="admin-btn edit-btn" onclick="startEdit('${site.id}')">Edit</button>
-                        <button class="admin-btn delete-btn" onclick="openDeleteModal('${site.id}', '${site.name}')">Delete</button>
-                    </div>
-                `;
+                item.innerHTML = `<span>${site.name}</span><div><button class="admin-btn edit-btn" onclick="startEdit('${site.id}')">Edit</button><button class="admin-btn delete-btn" onclick="openDeleteModal('${site.id}', '${site.name}')">Delete</button></div>`;
                 list.appendChild(item);
             });
         }
 
         function openDeleteModal(id, name) {
-            pendingDeleteId = id;
-            pendingDeleteName = name;
+            pendingDeleteId = id; pendingDeleteName = name;
             document.getElementById('delete-modal').style.display = 'flex';
             document.getElementById('step-1').style.display = 'block';
             document.getElementById('step-2').style.display = 'none';
             document.getElementById('verify-input').value = "";
         }
-
         function showStep2() {
             document.getElementById('step-1').style.display = 'none';
             document.getElementById('step-2').style.display = 'block';
             document.getElementById('target-site-name').innerText = pendingDeleteName;
         }
-
-        function closeDeleteModal() {
-            document.getElementById('delete-modal').style.display = 'none';
-        }
-
+        function closeDeleteModal() { document.getElementById('delete-modal').style.display = 'none'; }
         function finalDelete() {
             if(document.getElementById('verify-input').value.trim() === pendingDeleteName) {
-                sitesRef.child(pendingDeleteId).remove().then(() => {
-                    alert("Deleted!");
-                    closeDeleteModal();
-                    refreshAdminList();
-                });
-            } else {
-                alert("Name did not match!");
-            }
+                sitesRef.child(pendingDeleteId).remove().then(() => { alert("Deleted!"); closeDeleteModal(); refreshAdminList(); });
+            } else { alert("Name did not match!"); }
         }
 
         function startEdit(id) {
             const site = allWebsites.find(s => s.id === id);
-            toggleAdmin(false);
-            navigate('create');
+            toggleAdmin(false); navigate('create');
             document.getElementById('create-title').innerText = "Edit Website";
             document.getElementById('edit-id').value = site.id;
             document.getElementById('site-icon').value = site.icon;
@@ -521,13 +513,9 @@ function closeRequests() {
                 icon: document.getElementById('site-icon').value,
                 code: document.getElementById('site-code').value,
                 status: 'pending' 
-            }).then(() => {
-                alert("Update Sent for Approval! It is now Pending.");
-                navigate('home');
-            });
+            }).then(() => { alert("Update Sent for Approval! It is now Pending."); navigate('home'); });
         }
 
-        // --- Firebase Realtime Listener ---
         sitesRef.on('value', snap => {
             allWebsites = [];
             snap.forEach(child => {
@@ -546,32 +534,85 @@ function closeRequests() {
             
             filtered.forEach(site => {
                 if(site.status !== 'approved') return;
+                
+                const commentCount = site.comments ? Object.keys(site.comments).length : 0;
+                const viewCount = site.clicks || 0;
 
                 const item = document.createElement('div');
                 item.className = 'site-card';
-                item.onclick = () => {
-                    db.ref('uploaded_sites/' + site.id).update({ clicks: (site.clicks || 0) + 1 });
-                    openSite(site.code);
-                };
                 item.innerHTML = `
-                    <img src="${site.icon}" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1243/1243933.png'">
-                    <div class="info-box">
-                        <h3 class="site-name">${site.name}</h3>
+                    <img src="${site.icon}" onclick="openSiteWrapper('${site.id}')" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1243/1243933.png'">
+                    <div class="info-box" onclick="openSiteWrapper('${site.id}')">
+                        <div class="site-name-wrapper">
+                            <h3 class="site-name">${site.name}</h3>
+                        </div>
                         <div class="author-name">by ${site.author || 'Anonymous'}</div>
+                    </div>
+                    <div class="site-stats">
+                        <div class="stat-item">
+                            <i class="fa fa-eye"></i>
+                            <span class="stat-count">${viewCount}</span>
+                        </div>
+                        <div class="stat-item" onclick="openCommentPanel('${site.id}')">
+                            <i class="fa-regular fa-comment"></i>
+                            <span class="stat-count">${commentCount}</span>
+                        </div>
                     </div>
                 `;
                 list.appendChild(item);
             });
         }
 
+        function openSiteWrapper(id) {
+            const site = allWebsites.find(s => s.id === id);
+            db.ref('uploaded_sites/' + id).update({ clicks: (site.clicks || 0) + 1 });
+            openSite(site.code);
+        }
+
         function openSite(code) {
             isViewing = true;
             document.getElementById('viewer').style.display = 'block';
             const doc = document.getElementById('display-frame').contentWindow.document;
-            doc.open(); 
-            doc.write(code); 
-            doc.close();
+            doc.open(); doc.write(code); doc.close();
             window.history.pushState({isViewing: true}, "");
+        }
+
+        /* --- Comment Logic --- */
+        function openCommentPanel(id) {
+            currentCommentSiteId = id;
+            const panel = document.getElementById('comment-panel');
+            panel.style.bottom = '0';
+            loadComments(id);
+        }
+
+        function toggleComments(show) {
+            document.getElementById('comment-panel').style.bottom = show ? '0' : '-100%';
+        }
+
+        function loadComments(id) {
+            const listUi = document.getElementById('comment-list-ui');
+            listUi.innerHTML = "Loading...";
+            db.ref('uploaded_sites/' + id + '/comments').on('value', snap => {
+                listUi.innerHTML = "";
+                if(!snap.exists()) { listUi.innerHTML = "<p style='color:#999;'>No comments yet.</p>"; return; }
+                snap.forEach(c => {
+                    const data = c.val();
+                    const div = document.createElement('div');
+                    div.className = 'comment-item';
+                    div.innerHTML = `<span class="comment-user">${data.user}:</span><span>${data.text}</span>`;
+                    listUi.appendChild(div);
+                });
+                listUi.scrollTop = listUi.scrollHeight;
+            });
+        }
+
+        function postComment() {
+            const input = document.getElementById('new-comment');
+            const text = input.value.trim();
+            if(!text || !currentCommentSiteId) return;
+            db.ref('uploaded_sites/' + currentCommentSiteId + '/comments').push({
+                user: currentUser, text: text, timestamp: Date.now()
+            }).then(() => { input.value = ""; });
         }
 
         window.onpopstate = function() {
