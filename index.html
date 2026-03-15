@@ -194,6 +194,12 @@
         .logout-btn { background: none; border: none; color: #d93025; font-size: 16px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; }
         #logout-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 11000; align-items: center; justify-content: center; }
         .logout-modal-box { background: white; width: 85%; max-width: 300px; padding: 20px; border-radius: 15px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+
+        /* --- Report Modal Style --- */
+        #report-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 15000; align-items: center; justify-content: center; }
+        .report-box { background: white; width: 85%; max-width: 320px; padding: 20px; border-radius: 15px; }
+        .report-option { padding: 12px; border: 1px solid #eee; margin-bottom: 10px; border-radius: 8px; cursor: pointer; font-size: 14px; text-align: left; transition: 0.2s; }
+        .report-option.selected { background: #fdeaea; border-color: #d93025; color: #d93025; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -218,6 +224,23 @@
             </div>
             <div class="feed" id="site-list">
                 <p style='text-align:center; color:#999; margin-top:50px;'>Loading websites...</p>
+            </div>
+        </div>
+
+        <div id="report-modal">
+            <div class="report-box">
+                <h3 style="margin-top:0; color:#d93025;">Report Website</h3>
+                <p style="font-size:12px; color:#666;">Why are you reporting this?</p>
+                <div id="report-options-list">
+                    <div class="report-option" onclick="selectReport(this)">There are many glitches in this</div>
+                    <div class="report-option" onclick="selectReport(this)">have you been hacked?</div>
+                    <div class="report-option" onclick="selectReport(this)">You have been defrauded</div>
+                    <div class="report-option" onclick="selectReport(this)">Inappropriate Content</div>
+                </div>
+                <div class="modal-btns" style="margin-top:20px;">
+                    <button class="m-btn m-cancel" style="flex:1;" onclick="closeReport()">Cancel</button>
+                    <button class="m-btn m-delete" style="flex:1; background:#d93025;" onclick="confirmReport()">Confirm</button>
+                </div>
             </div>
         </div>
 
@@ -346,23 +369,18 @@
         const usersRef = db.ref('app_users');
 
         let allWebsites = [];
-        let usersData = {}; // Stores verification info
         let isViewing = false; 
         let currentUser = null;
         let isSignUpMode = true;
         let pendingDeleteId = "";
         let pendingDeleteName = "";
         let currentCommentSiteId = null;
+        let selectedReportText = "";
+        let pendingReportId = "";
 
         window.onload = function() {
             const savedUser = localStorage.getItem('webhub_user');
             if(savedUser) { loginUser(savedUser); }
-            
-            // Listen to users for verification status
-            usersRef.on('value', snap => {
-                usersData = snap.val() || {};
-                refreshList(document.getElementById('search-bar').value);
-            });
         };
 
         function toggleAuthMode() {
@@ -381,7 +399,7 @@
                 usersRef.child(user).once('value', snap => {
                     if(snap.exists()) { alert("Change your name, it is already there"); }
                     else { 
-                        usersRef.child(user).set({ password: pass, verified: false }).then(() => { 
+                        usersRef.child(user).set({ password: pass }).then(() => { 
                             alert("Account Created!"); 
                             loginUser(user); 
                         }); 
@@ -407,7 +425,7 @@
         function finalLogout() { localStorage.removeItem('webhub_user'); location.reload(); }
 
         function navigate(page) {
-          document.getElementById('home-page').style.display = (page === 'home') ? 'block' : 'none';
+            document.getElementById('home-page').style.display = (page === 'home') ? 'block' : 'none';
             document.getElementById('create-screen').style.display = (page === 'create') ? 'block' : 'none';
             document.getElementById('home-btn').classList.toggle('active', page === 'home');
             document.getElementById('create-btn').classList.toggle('active', page === 'create');
@@ -467,7 +485,7 @@
             const icon = document.getElementById('site-icon').value;
             const code = document.getElementById('site-code').value;
             sitesRef.push({
-                name: name, icon: icon, code: code, author: currentUser, clicks: 0, status: 'pending', timestamp: Date.now()
+                name: name, icon: icon, code: code, author: currentUser, clicks: 0, reports: 0, status: 'pending', timestamp: Date.now()
             }).then(() => {
                 alert("Website Sent for Approval (Pending)!"); navigate('home');
             });
@@ -554,10 +572,8 @@
                 
                 const commentCount = site.comments ? Object.keys(site.comments).length : 0;
                 const viewCount = site.clicks || 0;
-                
-                // Admin Tick Logic
-                const authorInfo = usersData[site.author] || {};
-                const isVerified = authorInfo.verified === true || viewCount >= 1000000;
+                const reportCount = site.reports || 0;
+                const isVerified = viewCount >= 1000000;
                 const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
 
                 const item = document.createElement('div');
@@ -571,9 +587,10 @@
                         <div class="author-name">by ${site.author || 'Anonymous'} ${blueTick}</div>
                     </div>
                     <div class="site-stats">
-                        <div class="stat-item">
-                            <i class="fa fa-eye"></i>
-                            <span class="stat-count">${viewCount}</span>
+                        <div class="stat-item" id="stat-toggle-${site.id}" onmousedown="startHold('${site.id}')" onmouseup="endHold()" ontouchstart="startHold('${site.id}')" ontouchend="endHold()">
+                            <i class="fa fa-eye" id="icon-view-${site.id}"></i>
+                            <i class="fa fa-triangle-exclamation" id="icon-report-${site.id}" style="display:none; color:#d93025;"></i>
+                            <span class="stat-count" id="count-text-${site.id}">${viewCount}</span>
                         </div>
                         <div class="stat-item" onclick="openCommentPanel('${site.id}')">
                             <i class="fa-regular fa-comment"></i>
@@ -582,6 +599,55 @@
                     </div>
                 `;
                 list.appendChild(item);
+            });
+        }
+
+        /* --- Long Press & Report Logic --- */
+        let holdTimer;
+        function startHold(id) {
+            holdTimer = setTimeout(() => {
+                const viewIcon = document.getElementById('icon-view-' + id);
+                const reportIcon = document.getElementById('icon-report-' + id);
+                const countText = document.getElementById('count-text-' + id);
+                const site = allWebsites.find(s => s.id === id);
+
+                if (viewIcon.style.display === 'none') {
+                    // Switch to View
+                    viewIcon.style.display = 'block';
+                    reportIcon.style.display = 'none';
+                    countText.innerText = site.clicks || 0;
+                    document.getElementById('stat-toggle-' + id).onclick = null;
+                } else {
+                    // Switch to Report
+                    viewIcon.style.display = 'none';
+                    reportIcon.style.display = 'block';
+                    countText.innerText = site.reports || 0;
+                    document.getElementById('stat-toggle-' + id).onclick = () => openReportModal(id);
+                }
+            }, 800);
+        }
+        function endHold() { clearTimeout(holdTimer); }
+
+        function openReportModal(id) {
+            pendingReportId = id;
+            selectedReportText = "";
+            document.querySelectorAll('.report-option').forEach(opt => opt.classList.remove('selected'));
+            document.getElementById('report-modal').style.display = 'flex';
+        }
+        function selectReport(el) {
+            document.querySelectorAll('.report-option').forEach(opt => opt.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedReportText = el.innerText;
+        }
+        function closeReport() { document.getElementById('report-modal').style.display = 'none'; }
+        function confirmReport() {
+            if(!selectedReportText) return alert("Select a reason!");
+            const site = allWebsites.find(s => s.id === pendingReportId);
+            db.ref('uploaded_sites/' + pendingReportId).update({ 
+                reports: (site.reports || 0) + 1 
+            }).then(() => {
+                alert("Report Confirmed!");
+                closeReport();
             });
         }
 
@@ -624,12 +690,13 @@
                     commentArr.push(cData);
                 });
                 
+                // Newest comments first
                 commentArr.sort((a, b) => b.timestamp - a.timestamp);
 
                 commentArr.forEach(data => {
-                    const authorInfo = usersData[data.user] || {};
-                    const isUserVerified = authorInfo.verified === true;
-                    const blueTick = isUserVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
+                    const site = allWebsites.find(s => s.id === id);
+                    const isVerified = (site.clicks || 0) >= 1000000;
+                    const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
                     
                     const div = document.createElement('div');
                     div.className = 'comment-item';
