@@ -369,6 +369,7 @@
         const usersRef = db.ref('app_users');
 
         let allWebsites = [];
+        let usersData = []; // Store users for verification check
         let isViewing = false; 
         let currentUser = null;
         let isSignUpMode = true;
@@ -381,6 +382,15 @@
         window.onload = function() {
             const savedUser = localStorage.getItem('webhub_user');
             if(savedUser) { loginUser(savedUser); }
+            
+            // Sync users data for Blue Tick
+            usersRef.on('value', snap => {
+                usersData = [];
+                snap.forEach(child => {
+                    usersData.push({ name: child.key, ...child.val() });
+                });
+                refreshList(document.getElementById('search-bar').value);
+            });
         };
 
         function toggleAuthMode() {
@@ -399,7 +409,7 @@
                 usersRef.child(user).once('value', snap => {
                     if(snap.exists()) { alert("Change your name, it is already there"); }
                     else { 
-                        usersRef.child(user).set({ password: pass }).then(() => { 
+                        usersRef.child(user).set({ password: pass, verified: false }).then(() => { 
                             alert("Account Created!"); 
                             loginUser(user); 
                         }); 
@@ -572,8 +582,10 @@
                 
                 const commentCount = site.comments ? Object.keys(site.comments).length : 0;
                 const viewCount = site.clicks || 0;
-                const reportCount = site.reports || 0;
-                const isVerified = viewCount >= 1000000;
+                
+                // --- Blue Tick Logic Fix ---
+                const authorProfile = usersData.find(u => u.name === site.author);
+                const isVerified = (viewCount >= 1000000) || (authorProfile && authorProfile.verified === true);
                 const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
 
                 const item = document.createElement('div');
@@ -690,12 +702,13 @@
                     commentArr.push(cData);
                 });
                 
-                // Newest comments first
                 commentArr.sort((a, b) => b.timestamp - a.timestamp);
 
                 commentArr.forEach(data => {
-                    const site = allWebsites.find(s => s.id === id);
-                    const isVerified = (site.clicks || 0) >= 1000000;
+                    // --- Blue Tick in Comments Fix ---
+                    const authorProfile = usersData.find(u => u.name === data.user);
+                    const siteOfComment = allWebsites.find(s => s.id === id);
+                    const isVerified = (authorProfile && authorProfile.verified === true) || ((siteOfComment.clicks || 0) >= 1000000);
                     const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
                     
                     const div = document.createElement('div');
