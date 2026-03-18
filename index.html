@@ -369,7 +369,7 @@
         const usersRef = db.ref('app_users');
 
         let allWebsites = [];
-        let usersData = []; // Store users for verification check
+        let usersData = [];
         let isViewing = false; 
         let currentUser = null;
         let isSignUpMode = true;
@@ -383,7 +383,6 @@
             const savedUser = localStorage.getItem('webhub_user');
             if(savedUser) { loginUser(savedUser); }
             
-            // Sync users data for Blue Tick
             usersRef.on('value', snap => {
                 usersData = [];
                 snap.forEach(child => {
@@ -394,7 +393,7 @@
         };
 
         function toggleAuthMode() {
-            isSignUpMode = !isSignUpMode;
+          isSignUpMode = !isSignUpMode;
             document.getElementById('auth-title').innerText = isSignUpMode ? "Sign Up" : "Login";
             document.getElementById('auth-action-btn').innerText = isSignUpMode ? "Create Account" : "Login Now";
             document.getElementById('auth-toggle-text').innerText = isSignUpMode ? "Already have an account? Login" : "New here? Create Account";
@@ -509,7 +508,8 @@
             mySites.forEach(site => {
                 const item = document.createElement('div');
                 item.className = 'admin-item';
-                item.innerHTML = `<span>${site.name}</span><div><button class="admin-btn edit-btn" onclick="startEdit('${site.id}')">Edit</button><button class="admin-btn delete-btn" onclick="openDeleteModal('${site.id}', '${site.name}')">Delete</button></div>`;
+                // Edit button removed here as requested
+                item.innerHTML = `<span>${site.name}</span><div><button class="admin-btn delete-btn" onclick="openDeleteModal('${site.id}', '${site.name}')">Delete</button></div>`;
                 list.appendChild(item);
             });
         }
@@ -531,17 +531,6 @@
             if(document.getElementById('verify-input').value.trim() === pendingDeleteName) {
                 sitesRef.child(pendingDeleteId).remove().then(() => { alert("Deleted!"); closeDeleteModal(); refreshAdminList(); });
             } else { alert("Name did not match!"); }
-        }
-
-        function startEdit(id) {
-            const site = allWebsites.find(s => s.id === id);
-            toggleAdmin(false); navigate('create');
-            document.getElementById('create-title').innerText = "Edit Website";
-            document.getElementById('edit-id').value = site.id;
-            document.getElementById('site-icon').value = site.icon;
-            document.getElementById('site-name').value = site.name;
-            document.getElementById('site-code').value = site.code;
-            validate();
         }
 
         function saveUpdate() {
@@ -583,7 +572,6 @@
                 const commentCount = site.comments ? Object.keys(site.comments).length : 0;
                 const viewCount = site.clicks || 0;
                 
-                // --- Blue Tick Logic Fix ---
                 const authorProfile = usersData.find(u => u.name === site.author);
                 const isVerified = (viewCount >= 1000000) || (authorProfile && authorProfile.verified === true);
                 const blueTick = isVerified ? '<i class="fa-solid fa-circle-check verified-tick"></i>' : '';
@@ -599,7 +587,10 @@
                         <div class="author-name">by ${site.author || 'Anonymous'} ${blueTick}</div>
                     </div>
                     <div class="site-stats">
-                        <div class="stat-item" id="stat-toggle-${site.id}" onmousedown="startHold('${site.id}')" onmouseup="endHold()" ontouchstart="startHold('${site.id}')" ontouchend="endHold()">
+                        <div class="stat-item" id="stat-toggle-${site.id}" 
+                             onmousedown="startHold('${site.id}')" onmouseup="endHold()" 
+                             ontouchstart="startHold('${site.id}')" ontouchend="endHold()"
+                             ondblclick="showReportDetails('${site.id}')">
                             <i class="fa fa-eye" id="icon-view-${site.id}"></i>
                             <i class="fa fa-triangle-exclamation" id="icon-report-${site.id}" style="display:none; color:#d93025;"></i>
                             <span class="stat-count" id="count-text-${site.id}">${viewCount}</span>
@@ -614,6 +605,20 @@
             });
         }
 
+        /* --- Double Click Report Details Logic --- */
+        function showReportDetails(id) {
+            const site = allWebsites.find(s => s.id === id);
+            if(!site.report_log) {
+                alert("No specific reports recorded yet.");
+                return;
+            }
+            let details = "Report Statistics:\n";
+            for(let reason in site.report_log) {
+                details += `- ${reason}: ${site.report_log[reason]}\n`;
+            }
+            alert(details);
+        }
+
         /* --- Long Press & Report Logic --- */
         let holdTimer;
         function startHold(id) {
@@ -624,13 +629,11 @@
                 const site = allWebsites.find(s => s.id === id);
 
                 if (viewIcon.style.display === 'none') {
-                    // Switch to View
                     viewIcon.style.display = 'block';
                     reportIcon.style.display = 'none';
                     countText.innerText = site.clicks || 0;
                     document.getElementById('stat-toggle-' + id).onclick = null;
                 } else {
-                    // Switch to Report
                     viewIcon.style.display = 'none';
                     reportIcon.style.display = 'block';
                     countText.innerText = site.reports || 0;
@@ -652,11 +655,18 @@
             selectedReportText = el.innerText;
         }
         function closeReport() { document.getElementById('report-modal').style.display = 'none'; }
+        
         function confirmReport() {
             if(!selectedReportText) return alert("Select a reason!");
             const site = allWebsites.find(s => s.id === pendingReportId);
+            
+            // Logic to track specific report counts
+            let currentLog = site.report_log || {};
+            currentLog[selectedReportText] = (currentLog[selectedReportText] || 0) + 1;
+
             db.ref('uploaded_sites/' + pendingReportId).update({ 
-                reports: (site.reports || 0) + 1 
+                reports: (site.reports || 0) + 1,
+                report_log: currentLog
             }).then(() => {
                 alert("Report Confirmed!");
                 closeReport();
@@ -705,7 +715,6 @@
                 commentArr.sort((a, b) => b.timestamp - a.timestamp);
 
                 commentArr.forEach(data => {
-                    // --- Blue Tick in Comments Fix ---
                     const authorProfile = usersData.find(u => u.name === data.user);
                     const siteOfComment = allWebsites.find(s => s.id === id);
                     const isVerified = (authorProfile && authorProfile.verified === true) || ((siteOfComment.clicks || 0) >= 1000000);
